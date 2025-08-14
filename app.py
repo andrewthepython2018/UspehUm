@@ -72,3 +72,123 @@ client_x509_cert_url = "https://www.googleapis.com/robot/v1/metadata/x509/..."
     st.stop()
 
 # Пробуем подключиться к таблице и вывести диагностику
+try:
+    SHEETS = Sheets(spreadsheet_url=url, sa_info=sa)
+    if DEBUG:
+        st.sidebar.success("Sheets: OK")
+        try:
+            titles = [ws.title for ws in SHEETS.sh.worksheets()]
+        except Exception as e:
+            titles = [f"<error: {e}>"]
+        st.sidebar.write({"worksheets": titles})
+except Exception as e:
+    st.error("Не удалось подключиться к Google Sheets (проверьте доступы и URL).")
+    if DEBUG:
+        st.exception(e)
+    st.stop()
+
+# ── Состояние сессии
+if "auth" not in st.session_state:
+    st.session_state.auth = {"ok": False, "email": None, "name": None, "role": None}
+
+# ── Хедер
+col1, col2 = st.columns([1, 2])
+with col1:
+    st.markdown("### 📚 Онлайн‑школа — Личный кабинет")
+with col2:
+    st.caption("Бесплатное веб‑приложение на Streamlit. Авторизация через Google Sheets · Тесты по биологии, физике, химии, математике и информатике.")
+
+# ── Форма входа
+
+def login_view():
+    st.subheader("Вход")
+    with st.form("login_form", clear_on_submit=False):
+        email = st.text_input("Email", placeholder="you@example.com")
+        submit = st.form_submit_button("Войти")
+    if submit:
+        user = SHEETS.get_user(email.strip().lower())
+        if user and str(user.get("active")).upper() == "TRUE":
+            st.session_state.auth = {
+                "ok": True,
+                "email": user.get("email"),
+                "name": user.get("name", "Ученик"),
+                "role": user.get("role", "stu"),
+            }
+            st.success(f"Добро пожаловать, {st.session_state.auth['name']}!")
+            st.experimental_rerun()
+        else:
+            st.error("Доступ не найден. Обратитесь к куратору или подайте заявку.")
+            if st.secrets.get("allow_signup", False):
+                st.info("Заполните заявку — мы добавим вас в список пользователей.")
+                with st.form("signup"):
+                    name = st.text_input("Ваше имя")
+                    email2 = st.text_input("Ваш email")
+                    req = st.text_area("Кратко о себе/класс/город")
+                    send = st.form_submit_button("Отправить заявку")
+                if send:
+                    SHEETS.append_row("signup", [datetime.now(timezone.utc).isoformat(), name, email2, req])
+                    st.success("Заявка отправлена. Мы свяжемся с вами по email.")
+
+# ── Домашняя страница после входа
+
+def dashboard_view():
+    a = st.session_state.auth
+    st.success(f"Вы вошли как {a['name']} ({a['email']})")
+
+    # KPlight
+    colA, colB, colC = st.columns(3)
+    with colA:
+        st.markdown("<div class='kpi-card'><b>Статус</b><br><span class='small'>Входные тесты доступны</span></div>", unsafe_allow_html=True)
+    with colB:
+        total_results = SHEETS.count_results(a["email"]) or 0
+        st.markdown(f"<div class='kpi-card'><b>Сдано тестов</b><br><span class='small'>{total_results}</span></div>", unsafe_allow_html=True)
+    with colC:
+        st.markdown("<div class='kpi-card'><b>Домашки</b><br><span class='small'>Скоро</span></div>", unsafe_allow_html=True)
+
+    st.divider()
+    st.subheader("Входные тесты")
+
+    subjects = [
+        ("biology", "🧬 Биология"),
+        ("physics", "🧲 Физика"),
+        ("chemistry", "⚗️ Химия"),
+        ("math", "➗ Математика"),
+        ("cs", "💻 Информатика"),
+    ]
+
+    data = load_subjects_from_sheet(SHEETS)
+
+    tabs = st.tabs([label for _, label in subjects])
+
+    for i, (code, label) in enumerate(subjects):
+        with tabs[i]:
+            questions = data.get(code, [])
+            if not questions:
+                st.warning("Вопросы пока не добавлены. Откройте лист tests и заполните.")
+                continue
+            st.caption("Ответьте на вопросы, затем нажмите \"Отправить\".")
+            score, total, answers = render_test_form(code, questions)
+            if score is not None:
+                # Запись результата
+                SHEETS.append_row(
+                    "results",
+                    [
+                        datetime.now(timezone.utc).isoformat(),
+                        a["email"],
+                        code,
+                        score,
+                        total,
+                        json.dumps(answers, ensure_ascii=False),
+                    ],
+                )
+                st.success(f"Результат сохранён: {score} / {total}")
+
+# ── Маршрутизация
+if not st.session_state.auth["ok"]:
+    if DEBUG:
+        st.sidebar.info("Route → login_view")
+    login_view()
+else:
+    if DEBUG:
+        st.sidebar.info("Route → dashboard_view")
+    dashboard_view()
