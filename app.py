@@ -7,7 +7,7 @@ import streamlit as st
 from sheets_backend import Sheets
 from tests_core import load_subjects_from_sheet, render_test_form
 
-st.set_page_config(page_title=st.secrets.get("app_title", "Онлайн‑школа"), page_icon="📚", layout="wide")
+st.set_page_config(page_title=st.secrets.get("app_title", "Онлайн‑школа УспехУм"), page_icon="📚", layout="wide")
 
 # ── Стили (минимальный аккуратный вид)
 CUSTOM_CSS = """
@@ -63,9 +63,9 @@ if "auth" not in st.session_state:
 # ── Хедер
 col1, col2 = st.columns([1, 2])
 with col1:
-    st.markdown("### 📚 Онлайн‑школа — Личный кабинет")
+    st.markdown("### 📚 Онлайн‑школа УспехУм — Личный кабинет")
 with col2:
-    st.caption("Бесплатное веб‑приложение на Streamlit. Авторизация через Google Sheets · Тесты по биологии, физике, химии, математике и информатике.")
+    st.caption("Ваша успеваемость · Тесты по биологии, физике, химии, математике и информатике.")
 
 # ── Форма входа
 
@@ -159,7 +159,7 @@ def dashboard_view():
         with tabs[i]:
             questions = data.get(code, [])
             if not questions:
-                st.warning("Вопросы пока не добавлены. Откройте лист tests и заполните.")
+                st.warning("Вопросы пока не добавлены.")
                 continue
             st.caption("Ответьте на вопросы, затем нажмите \"Отправить\".")
             score, total, answers = render_test_form(code, questions)
