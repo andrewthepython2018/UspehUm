@@ -7,7 +7,7 @@ import streamlit as st
 from sheets_backend import Sheets
 from tests_core import load_subjects_from_sheet, render_test_form
 
-st.set_page_config(page_title=st.secrets.get("app_title", "Онлайн‑школа UspehUm"), page_icon="📚", layout="wide")
+st.set_page_config(page_title=st.secrets.get("app_title", "Онлайн‑школа"), page_icon="📚", layout="wide")
 
 # ── Стили (минимальный аккуратный вид)
 CUSTOM_CSS = """
@@ -63,20 +63,28 @@ if "auth" not in st.session_state:
 # ── Хедер
 col1, col2 = st.columns([1, 2])
 with col1:
-    st.markdown("### 📚 Онлайн‑школа UspehUm — Личный кабинет")
+    st.markdown("### 📚 Онлайн‑школа — Личный кабинет")
 with col2:
-    st.caption("Ваша успеваемость · Тесты по биологии, физике, химии, математике и информатике.")
+    st.caption("Бесплатное веб‑приложение на Streamlit. Авторизация через Google Sheets · Тесты по биологии, физике, химии, математике и информатике.")
 
 # ── Форма входа
 
 def login_view():
     st.subheader("Вход")
+
+    # Флаги для заявки на доступ между перерисовками
+    if "signup_visible" not in st.session_state:
+        st.session_state.signup_visible = False
+    if "signup_email" not in st.session_state:
+        st.session_state.signup_email = ""
+
     with st.form("login_form", clear_on_submit=False):
-        email = st.text_input("Email", placeholder="you@example.com")
+        email = st.text_input("Email", placeholder="you@example.com", value=st.session_state.signup_email)
         submit = st.form_submit_button("Войти")
 
     if submit:
-        user = SHEETS.get_user(email.strip().lower())
+        email_clean = email.strip().lower()
+        user = SHEETS.get_user(email_clean)
         if user and str(user.get("active")).upper() == "TRUE":
             st.session_state.auth = {
                 "ok": True,
@@ -93,15 +101,28 @@ def login_view():
         else:
             st.error("Доступ не найден. Обратитесь к куратору или подайте заявку.")
             if st.secrets.get("allow_signup", False):
-                st.info("Заполните заявку — мы добавим вас в список пользователей.")
-                with st.form("signup"):
-                    name = st.text_input("Ваше имя")
-                    email2 = st.text_input("Ваш email")
-                    req = st.text_area("Кратко о себе/класс/город")
-                    send = st.form_submit_button("Отправить заявку")
-                if send:
-                    SHEETS.append_row("signup", [datetime.now(timezone.utc).isoformat(), name, email2, req])
-                    st.success("Заявка отправлена. Мы свяжемся с вами по email.")
+                # Покажем форму заявки на следующем рендере
+                st.session_state.signup_visible = True
+                st.session_state.signup_email = email_clean
+
+    # Форма заявки на доступ — рендерится независимо от нажатия кнопки входа
+    if st.secrets.get("allow_signup", False) and st.session_state.signup_visible:
+        st.info("Заполните заявку — мы добавим вас в список пользователей.")
+        with st.form("signup_form"):
+            name = st.text_input("Ваше имя")
+            email2 = st.text_input("Ваш email", value=st.session_state.signup_email)
+            req = st.text_area("Кратко о себе/класс/город")
+            send = st.form_submit_button("Отправить заявку")
+        if send:
+            try:
+                SHEETS.append_row(
+                    "signup",
+                    [datetime.now(timezone.utc).isoformat(), name, email2, req],
+                )
+                st.success("Заявка отправлена. Мы свяжемся с вами по email.")
+                st.session_state.signup_visible = False
+            except Exception:
+                st.error("Не удалось записать заявку. Проверьте доступ сервиса к Google Sheet.")
 
 # ── Домашняя страница после входа
 
@@ -138,7 +159,7 @@ def dashboard_view():
         with tabs[i]:
             questions = data.get(code, [])
             if not questions:
-                st.warning("Вопросы пока не добавлены.")
+                st.warning("Вопросы пока не добавлены. Откройте лист tests и заполните.")
                 continue
             st.caption("Ответьте на вопросы, затем нажмите \"Отправить\".")
             score, total, answers = render_test_form(code, questions)
