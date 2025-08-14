@@ -1,5 +1,7 @@
 from typing import Any, Optional, List
 import gspread
+import time
+from gspread.exceptions import APIError
 
 class Sheets:
     def __init__(self, spreadsheet_url: str, sa_info: dict):
@@ -35,9 +37,32 @@ class Sheets:
         return ws.get_all_records()
 
     def count_results(self, email: str) -> int:
-        ws = self._get_ws("results")
-        vals = ws.col_values(2)  # email колонка
-        return sum(1 for v in vals if v.strip().lower() == email.strip().lower())
+        """Считает число записей результатов по email.
+        Устойчив к временным API ошибкам.
+        """
+        ws = self._get_ws(
+            "results",
+            headers=["timestamp", "email", "subject", "score", "total", "answers"],
+        )
+
+    # Небольшой helper для повторов запроса
+    def _retry_get_all_records():
+        last = None
+        for delay in (0.2, 0.5, 1.0):  # до 3 попыток
+            try:
+                return ws.get_all_records()  # один вызов API на весь лист
+            except APIError as e:
+                last = e
+                time.sleep(delay)
+        # окончательная попытка — если снова падает, вернем пустой список
+        try:
+            return ws.get_all_records()
+        except APIError:
+            return []
+
+    rows = _retry_get_all_records()
+    em = (email or "").strip().lower()
+    return sum(1 for r in rows if str(r.get("email", "")).strip().lower() == em)
 
     def append_row(self, sheet: str, row: List[Any]):
         ws = self._get_ws(sheet)
