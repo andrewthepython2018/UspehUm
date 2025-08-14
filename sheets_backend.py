@@ -45,24 +45,24 @@ class Sheets:
             headers=["timestamp", "email", "subject", "score", "total", "answers"],
         )
 
-    # Небольшой helper для повторов запроса
-    def _retry_get_all_records():
-        last = None
-        for delay in (0.2, 0.5, 1.0):  # до 3 попыток
+        # Небольшой helper для повторов запроса
+        def _retry_get_all_records():
+            last = None
+            for delay in (0.2, 0.5, 1.0):  # до 3 попыток
+                try:
+                    return ws.get_all_records()  # один вызов API на весь лист
+                except APIError as e:
+                    last = e
+                    time.sleep(delay)
+            # окончательная попытка — если снова падает, вернем пустой список
             try:
-                return ws.get_all_records()  # один вызов API на весь лист
-            except APIError as e:
-                last = e
-                time.sleep(delay)
-        # окончательная попытка — если снова падает, вернем пустой список
-        try:
-            return ws.get_all_records()
-        except APIError:
-            return []
+                return ws.get_all_records()
+            except APIError:
+                return []
 
-    rows = _retry_get_all_records()
-    em = (email or "").strip().lower()
-    return sum(1 for r in rows if str(r.get("email", "")).strip().lower() == em)
+        rows = _retry_get_all_records()
+        em = (email or "").strip().lower()
+        return sum(1 for r in rows if str(r.get("email", "")).strip().lower() == em)
 
     def append_row(self, sheet: str, row: List[Any]):
         ws = self._get_ws(sheet)
