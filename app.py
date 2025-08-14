@@ -39,8 +39,7 @@ DEBUG = st.sidebar.toggle("Debug", value=DEBUG, help="Показать служ�
 with st.sidebar:
     st.caption("🔐 Secrets keys detected:")
     try:
-        st.code("
-".join(sorted(map(str, st.secrets.keys()))))
+        st.code("".join(sorted(map(str, st.secrets.keys()))))
     except Exception:
         st.code("(no secrets)")
 
