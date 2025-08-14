@@ -1,5 +1,4 @@
 import json
-import time
 from datetime import datetime, timezone
 from typing import Dict, List
 
@@ -10,7 +9,7 @@ from tests_core import load_subjects_from_sheet, render_test_form
 
 st.set_page_config(page_title=st.secrets.get("app_title", "Онлайн‑школа"), page_icon="📚", layout="wide")
 
-# ── Стили (минимальный фирменный вид)
+# ── Стили (минимальный аккуратный вид)
 CUSTOM_CSS = """
 <style>
 .main .block-container{max-width:1100px}
@@ -21,28 +20,9 @@ CUSTOM_CSS = """
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-# ── Инициализация Sheets клиента
-# ── Инициализация Sheets клиента (с защитой от отсутствующих secret'ов)
+# ── Инициализация Sheets клиента (без debug и сайдбара)
 sa = st.secrets.get("gcp_service_account")
 url = st.secrets.get("spreadsheet_url")
-
-# Debug-режим: включается параметром ?debug=1 или тумблером в сайдбаре
-qp = getattr(st, "query_params", {})
-DEBUG = False
-try:
-    DEBUG = ("debug" in qp and str(qp.get("debug", "1")).lower() not in ("0","false"))
-except Exception:
-    pass
-DEBUG = st.sidebar.toggle("Debug", value=DEBUG, help="Показать служебную диагностику")
-
-# Показать какие ключи Secrets доступны (без значений)
-with st.sidebar:
-    st.caption("🔐 Secrets keys detected:")
-    try:
-        st.code("".join(sorted(map(str, st.secrets.keys()))))
-    except Exception:
-        st.code("(no secrets)")
-
 if not sa or not url:
     st.error("Не настроены секреты: gcp_service_account и/или spreadsheet_url.")
     with st.expander("Как это исправить?"):
@@ -64,26 +44,16 @@ token_uri = "https://oauth2.googleapis.com/token"
 auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
 client_x509_cert_url = "https://www.googleapis.com/robot/v1/metadata/x509/..."
 ```
-2. Откройте доступ (Editor) к этой Google‑таблице для `client_email` из секрета.
+2. Дайте доступ **Editor** к Google Sheet для `client_email`.
 3. Нажмите **Reboot app**.
 """
         )
     st.stop()
 
-# Пробуем подключиться к таблице и вывести диагностику
 try:
     SHEETS = Sheets(spreadsheet_url=url, sa_info=sa)
-    if DEBUG:
-        st.sidebar.success("Sheets: OK")
-        try:
-            titles = [ws.title for ws in SHEETS.sh.worksheets()]
-        except Exception as e:
-            titles = [f"<error: {e}>"]
-        st.sidebar.write({"worksheets": titles})
-except Exception as e:
-    st.error("Не удалось подключиться к Google Sheets (проверьте доступы и URL).")
-    if DEBUG:
-        st.exception(e)
+except Exception:
+    st.error("Не удалось подключиться к Google Sheets (проверьте доступ и URL).")
     st.stop()
 
 # ── Состояние сессии
@@ -115,15 +85,11 @@ def login_view():
                 "role": user.get("role", "stu"),
             }
             st.success(f"Добро пожаловать, {st.session_state.auth['name']}!")
-
-            # Надёжный способ перерисовать страницу на новой версии Streamlit
             try:
                 st.rerun()
             except AttributeError:
-                # на старых версиях
                 st.experimental_rerun()
-            return  # на всякий случай, чтобы дальше не выполнялось
-
+            return
         else:
             st.error("Доступ не найден. Обратитесь к куратору или подайте заявку.")
             if st.secrets.get("allow_signup", False):
@@ -134,12 +100,8 @@ def login_view():
                     req = st.text_area("Кратко о себе/класс/город")
                     send = st.form_submit_button("Отправить заявку")
                 if send:
-                    SHEETS.append_row(
-                        "signup",
-                        [datetime.now(timezone.utc).isoformat(), name, email2, req],
-                    )
+                    SHEETS.append_row("signup", [datetime.now(timezone.utc).isoformat(), name, email2, req])
                     st.success("Заявка отправлена. Мы свяжемся с вами по email.")
-
 
 # ── Домашняя страница после входа
 
@@ -147,7 +109,7 @@ def dashboard_view():
     a = st.session_state.auth
     st.success(f"Вы вошли как {a['name']} ({a['email']})")
 
-    # KPlight
+    # Карточки
     colA, colB, colC = st.columns(3)
     with colA:
         st.markdown("<div class='kpi-card'><b>Статус</b><br><span class='small'>Входные тесты доступны</span></div>", unsafe_allow_html=True)
@@ -197,10 +159,6 @@ def dashboard_view():
 
 # ── Маршрутизация
 if not st.session_state.auth["ok"]:
-    if DEBUG:
-        st.sidebar.info("Route → login_view")
     login_view()
 else:
-    if DEBUG:
-        st.sidebar.info("Route → dashboard_view")
     dashboard_view()
