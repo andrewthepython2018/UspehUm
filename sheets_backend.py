@@ -1,69 +1,81 @@
-from typing import Any, Optional, List
-import gspread
+# sheets_backend.py — устойчивый слой для Google Sheets
+from typing import Any, Optional, List, Dict
 import time
-from gspread.exceptions import APIError
+import gspread
+from gspread.exceptions import WorksheetNotFound, APIError
+
+HEADERS: Dict[str, List[str]] = {
+    "users":   ["email", "name", "role", "active"],
+    "tests":   ["subject", "qid", "question", "a", "b", "c", "d", "correct"],
+    "results": ["timestamp", "email", "subject", "score", "total", "answers"],
+    "signup":  ["timestamp", "name", "email", "request"],
+}
 
 class Sheets:
     def __init__(self, spreadsheet_url: str, sa_info: dict):
         self.gc = gspread.service_account_from_dict(sa_info)
         self.sh = self.gc.open_by_url(spreadsheet_url)
 
-    def _get_ws(self, title: str):
+    # ---------- internals ----------
+    def _get_ws(self, title: str, headers: Optional[List[str]] = None, **_):
+        """Вернёт лист по имени; при отсутствии создаст и проставит заголовки."""
         try:
-            return self.sh.worksheet(title)
-        except gspread.WorksheetNotFound:
-            # если листа нет — создадим и положим заголовки по умолчанию
-            ws = self.sh.add_worksheet(title=title, rows=1000, cols=26)
-            if title == "users":
-                ws.append_row(["email", "name", "role", "active"])            
-            elif title == "tests":
-                ws.append_row(["subject", "qid", "question", "a", "b", "c", "d", "correct"]) 
-            elif title == "results":
-                ws.append_row(["timestamp", "email", "subject", "score", "total", "answers_json"]) 
-            elif title == "signup":
-                ws.append_row(["timestamp", "name", "email", "request"]) 
-            return ws
+            ws = self.sh.worksheet(title)
+        except WorksheetNotFound:
+            cols = len(headers) if headers else 10
+            ws = self.sh.add_worksheet(title=title, rows=1000, cols=cols)
+        # гарантируем заголовки
+        if headers:
+            first_row = ws.row_values(1)
+            if not first_row:
+                ws.update("1:1", [headers])
+        return ws
+
+    def _get_all_records_retry(self, ws, attempts=(0.0, 0.3, 0.7, 1.2)):
+        last = None
+        for delay in attempts:
+            try:
+                return ws.get_all_records()
+            except APIError as e:
+                last = e
+                time.sleep(delay)
+        # финальная попытка без sleep
+        try:
+            return ws.get_all_records()
+        except APIError:
+            return []
+
+    # ---------- public API ----------
+    def append_row(self, sheet: str, row: List[Any]) -> None:
+        ws = self._get_ws(sheet, HEADERS.get(sheet))
+        ws.append_row(row, value_input_option="USER_ENTERED")
 
     def get_user(self, email: str) -> Optional[dict]:
-        ws = self._get_ws("users")
-        rows = ws.get_all_records()
+        ws = self._get_ws("users", HEADERS["users"])
+        rows = self._get_all_records_retry(ws)
+        em = (email or "").strip().lower()
         for r in rows:
-            if str(r.get("email", "")).strip().lower() == email:
+            if str(r.get("email", "")).strip().lower() == em:
                 return r
         return None
 
     def get_tests(self) -> List[dict]:
-        ws = self._get_ws("tests")
-        return ws.get_all_records()
+        ws = self._get_ws("tests", HEADERS["tests"])
+        rows = self._get_all_records_retry(ws)
+        # нормализуем qid -> int, если возможно
+        out = []
+        for r in rows:
+            if not r.get("subject"):
+                continue
+            try:
+                r["qid"] = int(r.get("qid"))
+            except Exception:
+                pass
+            out.append(r)
+        return out
 
     def count_results(self, email: str) -> int:
-        """Считает число записей результатов по email.
-        Устойчив к временным API ошибкам.
-        """
-        ws = self._get_ws(
-            "results",
-            headers=["timestamp", "email", "subject", "score", "total", "answers"],
-        )
-
-        # Небольшой helper для повторов запроса
-        def _retry_get_all_records():
-            last = None
-            for delay in (0.2, 0.5, 1.0):  # до 3 попыток
-                try:
-                    return ws.get_all_records()  # один вызов API на весь лист
-                except APIError as e:
-                    last = e
-                    time.sleep(delay)
-            # окончательная попытка — если снова падает, вернем пустой список
-            try:
-                return ws.get_all_records()
-            except APIError:
-                return []
-
-        rows = _retry_get_all_records()
+        ws = self._get_ws("results", HEADERS["results"])
+        rows = self._get_all_records_retry(ws)
         em = (email or "").strip().lower()
         return sum(1 for r in rows if str(r.get("email", "")).strip().lower() == em)
-
-    def append_row(self, sheet: str, row: List[Any]):
-        ws = self._get_ws(sheet)
-        ws.append_row(row)
