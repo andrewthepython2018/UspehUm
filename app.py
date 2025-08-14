@@ -39,7 +39,8 @@ DEBUG = st.sidebar.toggle("Debug", value=DEBUG, help="Показать служ�
 with st.sidebar:
     st.caption("🔐 Secrets keys detected:")
     try:
-        st.code("".join(sorted(map(str, st.secrets.keys()))))
+        st.code("
+".join(sorted(map(str, st.secrets.keys()))))
     except Exception:
         st.code("(no secrets)")
 
@@ -114,7 +115,11 @@ def login_view():
                 "role": user.get("role", "stu"),
             }
             st.success(f"Добро пожаловать, {st.session_state.auth['name']}!")
-            st.experimental_rerun()
+# Перерисовать страницу после логина (Streamlit ≥1.30 — st.rerun)
+if hasattr(st, "rerun"):
+    st.rerun()
+else:
+    st.experimental_rerun()
         else:
             st.error("Доступ не найден. Обратитесь к куратору или подайте заявку.")
             if st.secrets.get("allow_signup", False):
