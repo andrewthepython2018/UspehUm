@@ -22,46 +22,53 @@ CUSTOM_CSS = """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # ── Инициализация Sheets клиента
-SHEETS = Sheets(
-    spreadsheet_url=st.secrets["spreadsheet_url"],
-    sa_info=st.secrets["gcp_service_account"],
-)
+# ── Инициализация Sheets клиента (с защитой от отсутствующих secret'ов)
+sa = st.secrets.get("gcp_service_account")
+url = st.secrets.get("spreadsheet_url")
 
-# ── Состояние сессии
-if "auth" not in st.session_state:
-    st.session_state.auth = {"ok": False, "email": None, "name": None, "role": None}
+# Debug-режим: включается параметром ?debug=1 или тумблером в сайдбаре
+qp = getattr(st, "query_params", {})
+DEBUG = False
+try:
+    DEBUG = ("debug" in qp and str(qp.get("debug", "1")).lower() not in ("0","false"))
+except Exception:
+    pass
+DEBUG = st.sidebar.toggle("Debug", value=DEBUG, help="Показать служебную диагностику")
 
-# ── Хедер
-col1, col2 = st.columns([1, 2])
-with col1:
-    st.markdown("### 📚 Онлайн‑школа — Личный кабинет")
-with col2:
-    st.caption("Бесплатное веб‑приложение на Streamlit. Авторизация через Google Sheets · Тесты по биологии, физике, химии, математике и информатике.")
+# Показать какие ключи Secrets доступны (без значений)
+with st.sidebar:
+    st.caption("🔐 Secrets keys detected:")
+    try:
+        st.code("
+".join(sorted(map(str, st.secrets.keys()))))
+    except Exception:
+        st.code("(no secrets)")
 
-# ── Форма входа
+if not sa or not url:
+    st.error("Не настроены секреты: gcp_service_account и/или spreadsheet_url.")
+    with st.expander("Как это исправить?"):
+        st.markdown(
+            """
+1. В Streamlit Cloud → **Manage app → Settings → Secrets** вставьте:
+```toml
+spreadsheet_url = "https://docs.google.com/spreadsheets/d/XXXXXXXXXXXX/edit"
 
-def login_view():
-    st.subheader("Вход")
-    with st.form("login_form", clear_on_submit=False):
-        email = st.text_input("Email", placeholder="you@example.com")
-        submit = st.form_submit_button("Войти")
-    if submit:
-        user = SHEETS.get_user(email.strip().lower())
-        if user and str(user.get("active")).upper() == "TRUE":
-            st.session_state.auth = {
-                "ok": True,
-                "email": user.get("email"),
-                "name": user.get("name", "Ученик"),
-                "role": user.get("role", "stu"),
-            }
-            st.success(f"Добро пожаловать, {st.session_state.auth['name']}!")
-            st.experimental_rerun()
-        else:
-            st.error("Доступ не найден. Обратитесь к куратору или подайте заявку.")
-            if st.secrets.get("allow_signup", False):
-                st.info("Заполните заявку — мы добавим вас в список пользователей.")
-                with st.form("signup"):
-                    name = st.text_input("Ваше имя")
-                    email2 = st.text_input("Ваш email")
-                    req = st.text_area("Кратко о себе/класс/город")
-    dashboard_view()
+[gcp_service_account]
+type = "service_account"
+project_id = "..."
+private_key_id = "..."
+private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+client_email = "SERVICE-ACCOUNT@PROJECT.iam.gserviceaccount.com"
+client_id = "..."
+auth_uri = "https://accounts.google.com/o/oauth2/auth"
+token_uri = "https://oauth2.googleapis.com/token"
+auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
+client_x509_cert_url = "https://www.googleapis.com/robot/v1/metadata/x509/..."
+```
+2. Откройте доступ (Editor) к этой Google‑таблице для `client_email` из секрета.
+3. Нажмите **Reboot app**.
+"""
+        )
+    st.stop()
+
+# Пробуем подключиться к таблице и вывести диагностику
