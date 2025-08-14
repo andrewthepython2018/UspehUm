@@ -104,6 +104,7 @@ def login_view():
     with st.form("login_form", clear_on_submit=False):
         email = st.text_input("Email", placeholder="you@example.com")
         submit = st.form_submit_button("Войти")
+
     if submit:
         user = SHEETS.get_user(email.strip().lower())
         if user and str(user.get("active")).upper() == "TRUE":
@@ -114,11 +115,15 @@ def login_view():
                 "role": user.get("role", "stu"),
             }
             st.success(f"Добро пожаловать, {st.session_state.auth['name']}!")
-# Перерисовать страницу после логина (Streamlit ≥1.30 — st.rerun)
-if hasattr(st, "rerun"):
-    st.rerun()
-else:
-    st.experimental_rerun()
+
+            # Надёжный способ перерисовать страницу на новой версии Streamlit
+            try:
+                st.rerun()
+            except AttributeError:
+                # на старых версиях
+                st.experimental_rerun()
+            return  # на всякий случай, чтобы дальше не выполнялось
+
         else:
             st.error("Доступ не найден. Обратитесь к куратору или подайте заявку.")
             if st.secrets.get("allow_signup", False):
@@ -129,8 +134,12 @@ else:
                     req = st.text_area("Кратко о себе/класс/город")
                     send = st.form_submit_button("Отправить заявку")
                 if send:
-                    SHEETS.append_row("signup", [datetime.now(timezone.utc).isoformat(), name, email2, req])
+                    SHEETS.append_row(
+                        "signup",
+                        [datetime.now(timezone.utc).isoformat(), name, email2, req],
+                    )
                     st.success("Заявка отправлена. Мы свяжемся с вами по email.")
+
 
 # ── Домашняя страница после входа
 
