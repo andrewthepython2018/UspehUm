@@ -91,22 +91,29 @@ def dashboard_view():
             if not questions:
                 st.warning("Вопросы пока не добавлены.")
                 continue
+    
             st.caption("Ответьте на вопросы, затем нажмите \"Отправить\".")
             score, total, answers = render_test_form(code, questions)
+    
+            # пишем результат только если форма отправлена и есть вопросы
             if score is not None and total:
                 try:
                     SHEETS.append_row(
                         "results",
                         [
                             datetime.now(timezone.utc).isoformat(),
-                            a["email"],  # кто сдавал
-                            code,        # предмет
+                            a["email"],         # кто сдавал
+                            code,               # предмет
                             score,
                             total,
                             json.dumps(answers, ensure_ascii=False),
                         ],
                     )
+                except Exception:
+                    st.error("Не удалось записать результат. Попробуйте ещё раз.")
+                else:
                     st.success(f"Результат сохранён: {score} / {total}")
+
 
 
 # ── Маршрутизация
