@@ -6,7 +6,7 @@ from gspread.exceptions import WorksheetNotFound, APIError
 
 HEADERS: Dict[str, List[str]] = {
     "users":   ["email", "name", "role", "active"],
-    "tests":   ["subject", "qid", "question", "a", "b", "c", "d", "correct"],
+    "tests": ["subject", "qid", "question", "a", "b", "c", "d", "correct", "group"],
     "results": ["timestamp", "email", "subject", "score", "total", "answers"],
     "signup":  ["timestamp", "name", "email", "request"],
 }
