@@ -1,6 +1,5 @@
 import json
 from datetime import datetime, timezone
-from typing import Dict, List
 
 import streamlit as st
 
@@ -26,79 +25,7 @@ url = st.secrets.get("spreadsheet_url")
 if not sa or not url:
     st.error("Не настроены секреты: gcp_service_account и/или spreadsheet_url.")
     with st.expander("Как это исправить?"):
-        st.markdown(
-            """
-1. В Streamlit Cloud → **Manage app → Settings → Secrets** вставьте:
-```toml
-spreadsheet_url = "https://docs.google.com/spreadsheets/d/XXXXXXXXXXXX/edit"
-
-[gcp_service_account]
-type = "service_account"
-project_id = "..."
-private_key_id = "..."
-private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-client_email = "SERVICE-ACCOUNT@PROJECT.iam.gserviceaccount.com"
-client_id = "..."
-auth_uri = "https://accounts.google.com/o/oauth2/auth"
-token_uri = "https://oauth2.googleapis.com/token"
-auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
-client_x509_cert_url = "https://www.googleapis.com/robot/v1/metadata/x509/..."
-```
-2. Дайте доступ **Editor** к Google Sheet для `client_email`.
-3. Нажмите **Reboot app**.
-"""
-        )
-    st.stop()
-
-try:
-    SHEETS = Sheets(spreadsheet_url=url, sa_info=sa)
-except Exception:
-    st.error("Не удалось подключиться к Google Sheets (проверьте доступ и URL).")
-    st.stop()
-
-# ── Состояние сессии
-if "auth" not in st.session_state:
-    st.session_state.auth = {"ok": False, "email": None, "name": None, "role": None}
-
-# ── Хедер
-col1, col2 = st.columns([1, 2])
-with col1:
-    st.markdown("### 📚 Онлайн‑школа УспехУм — Личный кабинет")
-with col2:
-    st.caption("Ваша успеваемость · Тесты по биологии, физике, химии, математике и информатике.")
-
-# ── Форма входа
-
-def login_view():
-    st.subheader("Вход")
-
-    # Флаги для заявки на доступ между перерисовками
-    if "signup_visible" not in st.session_state:
-        st.session_state.signup_visible = False
-    if "signup_email" not in st.session_state:
-        st.session_state.signup_email = ""
-
-    with st.form("login_form", clear_on_submit=False):
-        email = st.text_input("Email", placeholder="you@example.com", value=st.session_state.signup_email)
-        submit = st.form_submit_button("Войти")
-
-    if submit:
-        email_clean = email.strip().lower()
-        user = SHEETS.get_user(email_clean)
-        if user and str(user.get("active")).upper() == "TRUE":
-            st.session_state.auth = {
-                "ok": True,
-                "email": user.get("email"),
-                "name": user.get("name", "Ученик"),
-                "role": user.get("role", "stu"),
-            }
-            st.success(f"Добро пожаловать, {st.session_state.auth['name']}!")
-            try:
-                st.rerun()
-            except AttributeError:
-                st.experimental_rerun()
-            return
-        else:
+@@ -102,101 +101,81 @@ def login_view():
             st.error("Доступ не найден. Обратитесь к куратору или подайте заявку.")
             if st.secrets.get("allow_signup", False):
                 # Покажем форму заявки на следующем рендере
@@ -123,26 +50,6 @@ def login_view():
                 st.session_state.signup_visible = False
             except Exception:
                 st.error("Не удалось записать заявку. Проверьте доступ сервиса к Google Sheet.")
-
-def load_subjects_by_group(sheets, group_code: str) -> Dict[str, List[dict]]:
-    """Загружает все вопросы и отбирает те, что подходят выбранной группе.
-    group == "" или отсутствует -> показать всем группам.
-    """
-    rows = sheets.get_tests()
-    out: Dict[str, List[dict]] = {}
-    for r in rows:
-        g = str(r.get("group", "") or "").strip().lower()
-        if g and g not in ("junior", "senior"):
-            # странное значение -> считаем «для всех»
-            g = ""
-        # если у вопроса явно задана группа и она не совпала — пропускаем
-        if g and g != group_code:
-            continue
-        out.setdefault(r["subject"], []).append(r)
-    # аккуратно отсортируем по qid, чтобы порядок был стабильный
-    for k in out:
-        out[k] = sorted(out[k], key=lambda x: x.get("qid", 0))
-    return out
 
 # ── Домашняя страница после входа
 
@@ -174,7 +81,7 @@ def dashboard_view():
         ("cs", "💻 Информатика"),
     ]
 
-    data = load_subjects_by_group(SHEETS, group_code)
+    data = load_subjects_from_sheet(SHEETS, group_code)
 
     tabs = st.tabs([label for _, label in subjects])
 
@@ -200,8 +107,6 @@ def dashboard_view():
                         ],
                     )
                     st.success(f"Результат сохранён: {score} / {total}")
-                except Exception:
-                    st.error("Не удалось записать результат. Попробуйте ещё раз.")
 
 
 # ── Маршрутизация
