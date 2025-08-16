@@ -37,7 +37,7 @@ SHEETS: Sheets = st.session_state.SHEETS
 
 # ---- Аутентификация ----
 def login_view():
-    # Шапка/оформление
+    # Шапка
     st.title("Онлайн школа — личный кабинет")
     st.markdown(
         "Добро пожаловать! Пройдите входные тесты по биологии, физике, химии, математике и информатике. "
@@ -45,99 +45,100 @@ def login_view():
     )
     st.divider()
 
-    # В самом верху login_view (после заголовков) добавьте показ статусов:
-    if st.session_state.get("signup_success"):
+    # Сообщения об успехе/ошибке заявки — снаружи формы
+    if st.session_state.pop("signup_success", False):
         st.success("Заявка отправлена! Мы свяжемся с вами по e-mail после активации.")
-        st.session_state["signup_success"] = False
-    
-    if st.session_state.get("signup_error"):
+    if st.session_state.pop("signup_error", False):
         st.error("Не удалось отправить заявку. Попробуйте ещё раз или напишите администратору.")
-        st.session_state["signup_error"] = False
 
+    # Предзаполнение из сессии (если уже пробовали логин/заявку)
+    last_email = st.session_state.get("signup_email", "")
+    last_name = st.session_state.get("signup_name", "")
+
+    # Форма входа — БЕЗ раннего return
     with st.form("login_form", clear_on_submit=False):
-        email = st.text_input("Email", placeholder="name@example.com")
-        name = st.text_input("Имя (необязательно)")
+        email = st.text_input("Email", value=last_email, placeholder="name@example.com", key="login_email")
+        name = st.text_input("Имя (необязательно)", value=last_name, key="login_name")
         submitted = st.form_submit_button("Войти")
 
-    if not submitted:
-        return
-
-    email_norm = (email or "").strip().lower()
-    if "@" not in email_norm:
-        st.error("Введите корректный email.")
-        return
-
-    # Пытаемся найти пользователя
-    try:
-        user = SHEETS.get_user(email_norm)
-    except Exception:
-        user = None
-
-    # Функция проверки «активности»
-    def _is_active(u: dict | None) -> bool:
-        if not u:
-            return False
-        val = str(u.get("active", "")).strip().lower()
-        return val in ("true", "1", "yes", "y", "да")
-
-    # Если пользователь найден и активен — пускаем
-    if user and _is_active(user):
-        st.session_state["auth"] = {
-            "email": email_norm,
-            "name": user.get("name") or name or email_norm.split("@")[0],
-        }
-        st.success("Вход выполнен.")
-        st.rerun()
-        return
-
-    # Если не найден ИЛИ найден, но не активирован — показываем «всплывающую» заявку
-    if not user:
-        st.warning("Пользователь с таким e-mail не найден. Подайте заявку на регистрацию ниже.")
-    else:
-        st.info("Ваш аккаунт пока не активирован. Вы можете продублировать заявку, чтобы ускорить процесс.")
-
-    # Ниже, в ветке "не найден" / "не активирован", оставьте предупреждения
-    # и замените сам expander+form на это:
-    
-    # сохраняем состояние «экспандер открыт» между перерисовками
-    exp_open = st.session_state.get("signup_open", True)
-    
-    with st.expander("📝 Подать заявку на регистрацию", expanded=exp_open):
-        with st.form("signup_form", clear_on_submit=False):
-            # Уникальные ключи, предзаполнение и «параллельность» с формой входа не конфликтуют
-            s_name = st.text_input(
-                "Имя", value=(name or (user.get("name", "") if user else "")), key="signup_name"
-            )
-            s_email = st.text_input(
-                "Email для доступа", value=email_norm, disabled=True, key="signup_email"
-            )
-            s_group = st.selectbox("Группа", ["Младшая", "Старшая"], index=0, key="signup_group")
-            s_comment = st.text_area("Комментарий (необязательно)", placeholder="Класс, школа, пожелания…", key="signup_comment")
-            send_req = st.form_submit_button("Отправить заявку")
-    
-        if send_req:
+    # Обработка входа
+    if submitted:
+        email_norm = (email or "").strip().lower()
+        if "@" not in email_norm:
+            st.error("Введите корректный email.")
+        else:
             try:
-                req_payload = {
-                    "group": "junior" if s_group == "Младшая" else "senior",
-                    "comment": s_comment or "",
-                }
-                SHEETS.append_row(
-                    "signup",
-                    [
-                        datetime.now(timezone.utc).isoformat(),
-                        s_name,
-                        s_email,
-                        json.dumps(req_payload, ensure_ascii=False),
-                    ],
-                )
+                user = SHEETS.get_user(email_norm)
             except Exception:
-                st.session_state["signup_error"] = True
+                user = None
+
+            def _is_active(u: dict | None) -> bool:
+                if not u:
+                    return False
+                val = str(u.get("active", "")).strip().lower()
+                return val in ("true", "1", "yes", "y", "да")
+
+            if user and _is_active(user):
+                st.session_state["auth"] = {
+                    "email": email_norm,
+                    "name": user.get("name") or name or email_norm.split("@")[0],
+                }
+                st.rerun()
+                return
             else:
-                st.session_state["signup_success"] = True
-    
-            # держим блок раскрытым после клика и перерисовываем страницу
-            st.session_state["signup_open"] = True
-            st.rerun()
+                # Переключаемся в режим подачи заявки и перерисовываем страницу
+                st.session_state["signup_mode"] = True
+                st.session_state["signup_email"] = email_norm
+                st.session_state["signup_name"] = name or (user.get("name", "") if user else "")
+                st.session_state["signup_known"] = bool(user)  # найден, но не активен
+                st.session_state["signup_open"] = True
+                st.rerun()
+
+    # Режим заявки — показываем и обрабатываем независимо от кнопки «Войти»
+    if st.session_state.get("signup_mode"):
+        email_norm = st.session_state.get("signup_email", "")
+        name_pref = st.session_state.get("signup_name", "")
+        known = st.session_state.get("signup_known", False)
+
+        if not known:
+            st.warning("Пользователь с таким e-mail не найден. Подайте заявку на регистрацию ниже.")
+        else:
+            st.info("Ваш аккаунт пока не активирован. Вы можете отправить заявку, чтобы ускорить процесс.")
+
+        exp_open = st.session_state.get("signup_open", True)
+        with st.expander("📝 Подать заявку на регистрацию", expanded=exp_open):
+            with st.form("signup_form", clear_on_submit=False):
+                s_name = st.text_input("Имя", value=name_pref, key="signup_name_input")
+                s_email = st.text_input("Email для доступа", value=email_norm, disabled=True, key="signup_email_input")
+                s_group = st.selectbox("Группа", ["Младшая", "Старшая"], index=0, key="signup_group_input")
+                s_comment = st.text_area("Комментарий (необязательно)", placeholder="Класс, школа, пожелания…", key="signup_comment_input")
+                send_req = st.form_submit_button("Отправить заявку")
+
+            if send_req:
+                try:
+                    req_payload = {
+                        "group": "junior" if s_group == "Младшая" else "senior",
+                        "comment": s_comment or "",
+                    }
+                    SHEETS.append_row(
+                        "signup",
+                        [
+                            datetime.now(timezone.utc).isoformat(),
+                            s_name,
+                            email_norm,
+                            json.dumps(req_payload, ensure_ascii=False),
+                        ],
+                    )
+                except Exception:
+                    st.session_state["signup_error"] = True
+                else:
+                    st.session_state["signup_success"] = True
+
+                # После клика: держим блок открытым, выходим из режима заявки и перерисовываем
+                st.session_state["signup_open"] = True
+                st.session_state["signup_mode"] = False
+                st.rerun()
+
 
 
 
