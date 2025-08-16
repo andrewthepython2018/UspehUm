@@ -186,20 +186,23 @@ def dashboard_view():
                 continue
             st.caption("Ответьте на вопросы, затем нажмите \"Отправить\".")
             score, total, answers = render_test_form(code, questions)
-            if score is not None:
-                # Запись результата
-                SHEETS.append_row(
-                    "results",
-                    [
-                        datetime.now(timezone.utc).isoformat(),
-                        a["email"],
-                        code,
-                        score,
-                        total,
-                        json.dumps(answers, ensure_ascii=False),
-                    ],
-                )
-                st.success(f"Результат сохранён: {score} / {total}")
+            if score is not None and total:
+                try:
+                    SHEETS.append_row(
+                        "results",
+                        [
+                            datetime.now(timezone.utc).isoformat(),
+                            a["email"],  # кто сдавал
+                            code,        # предмет
+                            score,
+                            total,
+                            json.dumps(answers, ensure_ascii=False),
+                        ],
+                    )
+                    st.success(f"Результат сохранён: {score} / {total}")
+                except Exception:
+                    st.error("Не удалось записать результат. Попробуйте ещё раз.")
+
 
 # ── Маршрутизация
 if not st.session_state.auth["ok"]:
