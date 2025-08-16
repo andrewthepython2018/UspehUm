@@ -1,100 +1,114 @@
+# app.py — Онлайн школа: вход + тесты (junior/senior)
 import json
 from datetime import datetime, timezone
 
 import streamlit as st
-
 from sheets_backend import Sheets
 from tests_core import load_subjects_from_sheet, render_test_form
 
-st.set_page_config(page_title=st.secrets.get("app_title", "Онлайн‑школа УспехУм"), page_icon="📚", layout="wide")
+st.set_page_config(page_title="Онлайн школа — ЛК", page_icon="🎓", layout="wide")
 
-# ── Стили (минимальный аккуратный вид)
-CUSTOM_CSS = """
-<style>
-.main .block-container{max-width:1100px}
-.kpi-card{border-radius:16px; padding:16px; box-shadow:0 2px 10px rgba(0,0,0,.06);}
-.small{opacity:.8; font-size:0.9rem}
-.fullwidth > div[data-baseweb="select"]{width:100%}
-</style>
-"""
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+# ---- Константы интерфейса ----
+SUBJECTS = [
+    ("biology", "Биология"),
+    ("physics", "Физика"),
+    ("chemistry", "Химия"),
+    ("math", "Математика"),
+    ("cs", "Информатика"),
+]
 
-# ── Инициализация Sheets клиента (без debug и сайдбара)
-sa = st.secrets.get("gcp_service_account")
-url = st.secrets.get("spreadsheet_url")
-if not sa or not url:
-    st.error("Не настроены секреты: gcp_service_account и/или spreadsheet_url.")
-    with st.expander("Как это исправить?"):
-@@ -102,101 +101,81 @@ def login_view():
-            st.error("Доступ не найден. Обратитесь к куратору или подайте заявку.")
-            if st.secrets.get("allow_signup", False):
-                # Покажем форму заявки на следующем рендере
-                st.session_state.signup_visible = True
-                st.session_state.signup_email = email_clean
+# ---- Инициализация доступа к Google Sheets ----
+def _build_sheets():
+    # ничего лишнего не печатаем (без ключей и т.п.)
+    spreadsheet_url = st.secrets.get("spreadsheet_url", "")
+    sa_info = st.secrets.get("gcp_service_account", {})
+    if not spreadsheet_url or not sa_info:
+        st.error("Не настроены секреты: spreadsheet_url и/или gcp_service_account.")
+        st.stop()
+    try:
+        return Sheets(spreadsheet_url=spreadsheet_url, sa_info=sa_info)
+    except Exception as e:
+        st.error("Не удалось подключиться к Google Sheets. Проверьте доступ сервисного аккаунта.")
+        st.stop()
 
-    # Форма заявки на доступ — рендерится независимо от нажатия кнопки входа
-    if st.secrets.get("allow_signup", False) and st.session_state.signup_visible:
-        st.info("Заполните заявку — мы добавим вас в список пользователей.")
-        with st.form("signup_form"):
-            name = st.text_input("Ваше имя")
-            email2 = st.text_input("Ваш email", value=st.session_state.signup_email)
-            req = st.text_area("Кратко о себе/класс/город")
-            send = st.form_submit_button("Отправить заявку")
-        if send:
-            try:
-                SHEETS.append_row(
-                    "signup",
-                    [datetime.now(timezone.utc).isoformat(), name, email2, req],
-                )
-                st.success("Заявка отправлена. Мы свяжемся с вами по email.")
-                st.session_state.signup_visible = False
-            except Exception:
-                st.error("Не удалось записать заявку. Проверьте доступ сервиса к Google Sheet.")
+if "SHEETS" not in st.session_state:
+    st.session_state.SHEETS = _build_sheets()
+SHEETS: Sheets = st.session_state.SHEETS
 
-# ── Домашняя страница после входа
+# ---- Аутентификация ----
+def login_view():
+    st.title("Личный кабинет")
+    st.subheader("Вход")
+    with st.form("login_form"):
+        email = st.text_input("Email", placeholder="name@example.com")
+        name = st.text_input("Имя (необязательно)")
+        submitted = st.form_submit_button("Войти")
 
+    if not submitted:
+        return
+
+    email_norm = (email or "").strip().lower()
+    if "@" not in email_norm:
+        st.error("Введите корректный email.")
+        return
+
+    # Пытаемся найти пользователя. Если нет — создадим запись (упростим тестирование).
+    try:
+        user = SHEETS.get_user(email_norm)
+    except Exception:
+        user = None
+
+    if not user:
+        try:
+            SHEETS.append_row("users", [email_norm, (name or ""), "student", "TRUE"])
+        except Exception:
+            # если запись не удалась — всё равно пустим, но покажем предупреждение
+            st.warning("Не удалось записать нового пользователя в 'users', продолжим без этого.")
+        user = {"email": email_norm, "name": name or ""}
+
+    st.session_state["auth"] = {
+        "email": email_norm,
+        "name": user.get("name") or name or email_norm.split("@")[0],
+    }
+    st.rerun()
+
+# ---- Дашборд и тесты ----
 def dashboard_view():
-    a = st.session_state.auth
-    st.success(f"Вы вошли как {a['name']} ({a['email']})")
+    a = st.session_state.get("auth") or {}
+    st.title("Личный кабинет")
+    left, right = st.columns([1, 1])
+    with left:
+        st.caption(f"Вы вошли как: **{a.get('name') or a.get('email')}**")
+    with right:
+        if st.button("Выйти", use_container_width=True):
+            st.session_state.pop("auth", None)
+            st.rerun()
 
-    # Карточки
-    colA, colB, colC = st.columns(3)
-    with colA:
-        st.markdown("<div class='kpi-card'><b>Статус</b><br><span class='small'>Входные тесты доступны</span></div>", unsafe_allow_html=True)
-    with colB:
-        total_results = SHEETS.count_results(a["email"]) or 0
-        st.markdown(f"<div class='kpi-card'><b>Сдано тестов</b><br><span class='small'>{total_results}</span></div>", unsafe_allow_html=True)
-    with colC:
-        st.markdown("<div class='kpi-card'><b>Домашки</b><br><span class='small'>Скоро</span></div>", unsafe_allow_html=True)
+    # Метрика «Сдано тестов»
+    try:
+        total_results = SHEETS.count_results(a.get("email")) or 0
+    except Exception:
+        total_results = 0
+    st.metric("Сдано тестов", total_results)
 
-    st.divider()
     st.subheader("Входные тесты")
-
     grp_label = st.radio("Группа", ["Младшая", "Старшая"], horizontal=True)
     group_code = "junior" if grp_label == "Младшая" else "senior"
-    
-    subjects = [
-        ("biology", "🧬 Биология"),
-        ("physics", "🧲 Физика"),
-        ("chemistry", "⚗️ Химия"),
-        ("math", "➗ Математика"),
-        ("cs", "💻 Информатика"),
-    ]
 
+    # Загружаем банк вопросов с учётом группы (поддерживаются рус/англ subject/group и любой регистр заголовков)
     data = load_subjects_from_sheet(SHEETS, group_code)
 
-    tabs = st.tabs([label for _, label in subjects])
-
-    for i, (code, label) in enumerate(subjects):
+    tabs = st.tabs([label for _, label in SUBJECTS])
+    for i, (code, label) in enumerate(SUBJECTS):
         with tabs[i]:
             questions = data.get(code, [])
             if not questions:
-                st.warning("Вопросы пока не добавлены.")
+                st.warning("Вопросы пока не добавлены для этой группы.")
                 continue
-    
-            st.caption("Ответьте на вопросы, затем нажмите \"Отправить\".")
+
+            st.caption("Ответьте на вопросы, затем нажмите «Отправить».")
             score, total, answers = render_test_form(code, questions)
-    
+
             # пишем результат только если форма отправлена и есть вопросы
             if score is not None and total:
                 try:
@@ -102,8 +116,8 @@ def dashboard_view():
                         "results",
                         [
                             datetime.now(timezone.utc).isoformat(),
-                            a["email"],         # кто сдавал
-                            code,               # предмет
+                            a["email"],
+                            code,
                             score,
                             total,
                             json.dumps(answers, ensure_ascii=False),
@@ -114,10 +128,12 @@ def dashboard_view():
                 else:
                     st.success(f"Результат сохранён: {score} / {total}")
 
+# ---- Точка входа ----
+def main():
+    if not st.session_state.get("auth"):
+        login_view()
+    else:
+        dashboard_view()
 
-
-# ── Маршрутизация
-if not st.session_state.auth["ok"]:
-    login_view()
-else:
-    dashboard_view()
+if __name__ == "__main__":
+    main()
