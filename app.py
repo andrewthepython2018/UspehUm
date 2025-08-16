@@ -124,6 +124,26 @@ def login_view():
             except Exception:
                 st.error("Не удалось записать заявку. Проверьте доступ сервиса к Google Sheet.")
 
+def load_subjects_by_group(sheets, group_code: str) -> Dict[str, List[dict]]:
+    """Загружает все вопросы и отбирает те, что подходят выбранной группе.
+    group == "" или отсутствует -> показать всем группам.
+    """
+    rows = sheets.get_tests()
+    out: Dict[str, List[dict]] = {}
+    for r in rows:
+        g = str(r.get("group", "") or "").strip().lower()
+        if g and g not in ("junior", "senior"):
+            # странное значение -> считаем «для всех»
+            g = ""
+        # если у вопроса явно задана группа и она не совпала — пропускаем
+        if g and g != group_code:
+            continue
+        out.setdefault(r["subject"], []).append(r)
+    # аккуратно отсортируем по qid, чтобы порядок был стабильный
+    for k in out:
+        out[k] = sorted(out[k], key=lambda x: x.get("qid", 0))
+    return out
+
 # ── Домашняя страница после входа
 
 def dashboard_view():
@@ -143,6 +163,9 @@ def dashboard_view():
     st.divider()
     st.subheader("Входные тесты")
 
+    grp_label = st.radio("Группа", ["Младшая", "Старшая"], horizontal=True)
+    group_code = "junior" if grp_label == "Младшая" else "senior"
+    
     subjects = [
         ("biology", "🧬 Биология"),
         ("physics", "🧲 Физика"),
@@ -151,7 +174,7 @@ def dashboard_view():
         ("cs", "💻 Информатика"),
     ]
 
-    data = load_subjects_from_sheet(SHEETS)
+    data = load_subjects_by_group(SHEETS, group_code)
 
     tabs = st.tabs([label for _, label in subjects])
 
