@@ -37,9 +37,15 @@ SHEETS: Sheets = st.session_state.SHEETS
 
 # ---- Аутентификация ----
 def login_view():
-    st.title("Личный кабинет")
-    st.subheader("Вход")
-    with st.form("login_form"):
+    # Шапка/оформление
+    st.title("Онлайн школа — личный кабинет")
+    st.markdown(
+        "Добро пожаловать! Пройдите входные тесты по биологии, физике, химии, математике и информатике. "
+        "Если вы ещё не зарегистрированы — подайте заявку на доступ."
+    )
+    st.divider()
+
+    with st.form("login_form", clear_on_submit=False):
         email = st.text_input("Email", placeholder="name@example.com")
         name = st.text_input("Имя (необязательно)")
         submitted = st.form_submit_button("Войти")
@@ -52,30 +58,69 @@ def login_view():
         st.error("Введите корректный email.")
         return
 
-    # Пытаемся найти пользователя. Если нет — создадим запись (упростим тестирование).
+    # Пытаемся найти пользователя
     try:
         user = SHEETS.get_user(email_norm)
     except Exception:
         user = None
 
-    if not user:
-        try:
-            SHEETS.append_row("users", [email_norm, (name or ""), "student", "TRUE"])
-        except Exception:
-            # если запись не удалась — всё равно пустим, но покажем предупреждение
-            st.warning("Не удалось записать нового пользователя в 'users', продолжим без этого.")
-        user = {"email": email_norm, "name": name or ""}
+    # Функция проверки «активности»
+    def _is_active(u: dict | None) -> bool:
+        if not u:
+            return False
+        val = str(u.get("active", "")).strip().lower()
+        return val in ("true", "1", "yes", "y", "да")
 
-    st.session_state["auth"] = {
-        "email": email_norm,
-        "name": user.get("name") or name or email_norm.split("@")[0],
-    }
-    st.rerun()
+    # Если пользователь найден и активен — пускаем
+    if user and _is_active(user):
+        st.session_state["auth"] = {
+            "email": email_norm,
+            "name": user.get("name") or name or email_norm.split("@")[0],
+        }
+        st.success("Вход выполнен.")
+        st.rerun()
+        return
+
+    # Если не найден ИЛИ найден, но не активирован — показываем «всплывающую» заявку
+    if not user:
+        st.warning("Пользователь с таким e-mail не найден. Подайте заявку на регистрацию ниже.")
+    else:
+        st.info("Ваш аккаунт пока не активирован. Вы можете продублировать заявку, чтобы ускорить процесс.")
+
+    with st.expander("📝 Подать заявку на регистрацию", expanded=True):
+        with st.form("signup_form"):
+            # Предзаполним, чтобы не вводить заново
+            s_name = st.text_input("Имя", value=name or user.get("name", "") if user else name or "")
+            s_email = st.text_input("Email для доступа", value=email_norm, disabled=True)
+            s_group = st.selectbox("Группа", ["Младшая", "Старшая"], index=0)
+            s_comment = st.text_area("Комментарий (необязательно)", placeholder="Класс, школа, пожелания…")
+            send_req = st.form_submit_button("Отправить заявку")
+
+        if send_req:
+            try:
+                req_payload = {
+                    "group": "junior" if s_group == "Младшая" else "senior",
+                    "comment": s_comment or "",
+                }
+                SHEETS.append_row(
+                    "signup",
+                    [
+                        datetime.now(timezone.utc).isoformat(),
+                        s_name,
+                        s_email,
+                        json.dumps(req_payload, ensure_ascii=False),
+                    ],
+                )
+                st.success("Заявка отправлена! Мы свяжемся с вами по e-mail после активации.")
+            except Exception:
+                st.error("Не удалось отправить заявку. Попробуйте ещё раз или напишите администратору.")
+
 
 # ---- Дашборд и тесты ----
 def dashboard_view():
     a = st.session_state.get("auth") or {}
     st.title("Личный кабинет")
+    st.caption("Проходите входные тесты: результат сохраняется в журнал успеваемости.")
     left, right = st.columns([1, 1])
     with left:
         st.caption(f"Вы вошли как: **{a.get('name') or a.get('email')}**")
