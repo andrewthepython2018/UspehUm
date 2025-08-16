@@ -45,6 +45,15 @@ def login_view():
     )
     st.divider()
 
+    # В самом верху login_view (после заголовков) добавьте показ статусов:
+    if st.session_state.get("signup_success"):
+        st.success("Заявка отправлена! Мы свяжемся с вами по e-mail после активации.")
+        st.session_state["signup_success"] = False
+    
+    if st.session_state.get("signup_error"):
+        st.error("Не удалось отправить заявку. Попробуйте ещё раз или напишите администратору.")
+        st.session_state["signup_error"] = False
+
     with st.form("login_form", clear_on_submit=False):
         email = st.text_input("Email", placeholder="name@example.com")
         name = st.text_input("Имя (необязательно)")
@@ -87,15 +96,25 @@ def login_view():
     else:
         st.info("Ваш аккаунт пока не активирован. Вы можете продублировать заявку, чтобы ускорить процесс.")
 
-    with st.expander("📝 Подать заявку на регистрацию", expanded=True):
-        with st.form("signup_form"):
-            # Предзаполним, чтобы не вводить заново
-            s_name = st.text_input("Имя", value=name or user.get("name", "") if user else name or "")
-            s_email = st.text_input("Email для доступа", value=email_norm, disabled=True)
-            s_group = st.selectbox("Группа", ["Младшая", "Старшая"], index=0)
-            s_comment = st.text_area("Комментарий (необязательно)", placeholder="Класс, школа, пожелания…")
+    # Ниже, в ветке "не найден" / "не активирован", оставьте предупреждения
+    # и замените сам expander+form на это:
+    
+    # сохраняем состояние «экспандер открыт» между перерисовками
+    exp_open = st.session_state.get("signup_open", True)
+    
+    with st.expander("📝 Подать заявку на регистрацию", expanded=exp_open):
+        with st.form("signup_form", clear_on_submit=False):
+            # Уникальные ключи, предзаполнение и «параллельность» с формой входа не конфликтуют
+            s_name = st.text_input(
+                "Имя", value=(name or (user.get("name", "") if user else "")), key="signup_name"
+            )
+            s_email = st.text_input(
+                "Email для доступа", value=email_norm, disabled=True, key="signup_email"
+            )
+            s_group = st.selectbox("Группа", ["Младшая", "Старшая"], index=0, key="signup_group")
+            s_comment = st.text_area("Комментарий (необязательно)", placeholder="Класс, школа, пожелания…", key="signup_comment")
             send_req = st.form_submit_button("Отправить заявку")
-
+    
         if send_req:
             try:
                 req_payload = {
@@ -111,9 +130,15 @@ def login_view():
                         json.dumps(req_payload, ensure_ascii=False),
                     ],
                 )
-                st.success("Заявка отправлена! Мы свяжемся с вами по e-mail после активации.")
             except Exception:
-                st.error("Не удалось отправить заявку. Попробуйте ещё раз или напишите администратору.")
+                st.session_state["signup_error"] = True
+            else:
+                st.session_state["signup_success"] = True
+    
+            # держим блок раскрытым после клика и перерисовываем страницу
+            st.session_state["signup_open"] = True
+            st.rerun()
+
 
 
 # ---- Дашборд и тесты ----
