@@ -6,7 +6,7 @@ import streamlit as st
 from sheets_backend import Sheets
 from tests_core import load_subjects_from_sheet, render_test_form
 
-st.set_page_config(page_title="Онлайн школа — ЛК", page_icon="🎓", layout="wide")
+st.set_page_config(page_title="УспехУм — ЛК", page_icon="🎓", layout="wide")
 
 # ---- Константы интерфейса ----
 SUBJECTS = [
