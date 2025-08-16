@@ -42,7 +42,17 @@ def render_test_form(subject_code: str, questions: List[dict]):
         st.markdown(f"**Вопрос {q['qid']}.** {q['question']}")
         choice = st.radio(
             "Выберите ответ",
-            options=[("a", q["options"]["a"]), ("b", q["options"]["b"]), ("c", q["options"]["c"]), ("d", q["options"]["d"])],
+            label_text = (q.get("text") or q.get("question") or f"Вопрос {q.get('qid')}").strip()
+
+            opts = q.get("options") or {k: q.get(k) for k in ("a", "b", "c", "d")}
+            # Защитимся от пустых/сломанных строк в таблице
+            if not all(isinstance(opts.get(k), str) and opts.get(k).strip() for k in ("a", "b", "c", "d")):
+                # можно показать предупреждение и пропустить вопрос
+                # st.warning(f"Пропущен вопрос {q.get('qid')} из-за неполных вариантов.")
+                continue
+            
+            options = [("a", opts["a"]), ("b", opts["b"]), ("c", opts["c"]), ("d", opts["d"])]
+        
             format_func=lambda x: x[1],
             horizontal=False,
             key=qkey,
